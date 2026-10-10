@@ -1,0 +1,1159 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>STACK — ブロック積み上げ</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #0a0d13;
+    font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+  }
+
+  /* ============ HUD ============ */
+  #hud {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    padding-top: max(4vh, env(safe-area-inset-top, 0px));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  #score {
+    font-size: clamp(46px, 13vw, 104px);
+    font-weight: 900;
+    line-height: 0.95;
+    letter-spacing: -0.045em;
+    color: #ffffff;
+    text-shadow:
+      0 2px 0 rgba(0,0,0,0.18),
+      0 12px 40px rgba(0,0,0,0.55);
+    transform-origin: center;
+    will-change: transform;
+  }
+
+  #score.pop { animation: scorePop 0.32s cubic-bezier(0.2, 1.6, 0.35, 1); }
+
+  @keyframes scorePop {
+    0%   { transform: scale(1); }
+    35%  { transform: scale(1.22); }
+    100% { transform: scale(1); }
+  }
+
+  #best {
+    margin-top: 10px;
+    font-size: clamp(10px, 2.8vw, 13px);
+    font-weight: 700;
+    letter-spacing: 0.24em;
+    color: rgba(255,255,255,0.42);
+  }
+
+  /* ============ Overlays ============ */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    padding: 24px;
+    text-align: center;
+    transition: opacity 0.45s ease, visibility 0.45s;
+  }
+
+  .overlay.hidden {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  #startScreen {
+    background: radial-gradient(ellipse at 50% 45%, rgba(10,14,22,0.30) 0%, rgba(6,9,15,0.86) 70%);
+    gap: 4px;
+  }
+
+  #startScreen h1 {
+    font-size: clamp(52px, 17vw, 132px);
+    font-weight: 900;
+    letter-spacing: 0.02em;
+    line-height: 1;
+    color: #fff;
+    text-shadow: 0 0 60px rgba(120, 190, 255, 0.45), 0 14px 44px rgba(0,0,0,0.6);
+    animation: titleFloat 3.2s ease-in-out infinite;
+  }
+
+  @keyframes titleFloat {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-9px); }
+  }
+
+  #startScreen p {
+    margin-top: 18px;
+    font-size: clamp(12px, 3.6vw, 16px);
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    color: rgba(255,255,255,0.62);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 0.45; }
+    50%      { opacity: 1; }
+  }
+
+  /* Game over */
+  #overScreen {
+    background: radial-gradient(ellipse at 50% 45%, rgba(30,10,20,0.42) 0%, rgba(6,8,14,0.90) 72%);
+  }
+
+  #overScreen .panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    animation: panelIn 0.55s cubic-bezier(0.16, 1.05, 0.3, 1) both;
+  }
+
+  @keyframes panelIn {
+    from { opacity: 0; transform: translateY(28px) scale(0.94); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  #overScreen h2 {
+    font-size: clamp(15px, 4.4vw, 20px);
+    font-weight: 900;
+    letter-spacing: 0.42em;
+    color: #ff7b7b;
+    text-shadow: 0 0 30px rgba(255, 90, 90, 0.5);
+    margin-bottom: 12px;
+    padding-left: 0.42em;
+  }
+
+  #finalScore {
+    font-size: clamp(72px, 24vw, 156px);
+    font-weight: 900;
+    line-height: 0.9;
+    letter-spacing: -0.05em;
+    color: #fff;
+    text-shadow: 0 16px 50px rgba(0,0,0,0.6);
+  }
+
+  #overScreen .bestLine {
+    margin-top: 14px;
+    font-size: clamp(11px, 3.2vw, 14px);
+    font-weight: 800;
+    letter-spacing: 0.26em;
+    color: rgba(255, 216, 115, 0.85);
+  }
+
+  #overScreen .newRecord {
+    margin-top: 8px;
+    font-size: clamp(11px, 3.2vw, 14px);
+    font-weight: 900;
+    letter-spacing: 0.2em;
+    color: #ffe07a;
+    text-shadow: 0 0 22px rgba(255, 210, 90, 0.8);
+    animation: pulse 1.1s ease-in-out infinite;
+  }
+
+  #overScreen .hint {
+    margin-top: 30px;
+    font-size: clamp(11px, 3.2vw, 14px);
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    color: rgba(255,255,255,0.55);
+    animation: pulse 1.8s ease-in-out infinite;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+
+<div id="hud">
+  <div id="score">0</div>
+  <div id="best">BEST 0</div>
+</div>
+
+<div id="startScreen" class="overlay">
+  <h1>STACK</h1>
+  <p>タップして積み上げろ</p>
+</div>
+
+<div id="overScreen" class="overlay hidden">
+  <div class="panel">
+    <h2>GAME OVER</h2>
+    <div id="finalScore">0</div>
+    <div class="bestLine" id="bestLine">BEST 0</div>
+    <div class="newRecord" id="newRecord" style="display:none">★ NEW RECORD ★</div>
+    <p class="hint">タップしてリトライ</p>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* =========================================================
+     基本セットアップ
+  ========================================================= */
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d', { alpha: false });
+
+  const scoreEl    = document.getElementById('score');
+  const bestEl     = document.getElementById('best');
+  const startScr   = document.getElementById('startScreen');
+  const overScr    = document.getElementById('overScreen');
+  const finalEl    = document.getElementById('finalScore');
+  const bestLineEl = document.getElementById('bestLine');
+  const newRecEl   = document.getElementById('newRecord');
+
+  let W = 0, H = 0, DPR = 1;
+  let scale = 30, originX = 0, originY = 0;
+  let zoom = 1;
+
+  const ISO_X = Math.cos(Math.PI / 6);   // 0.8660
+  const ISO_Y = Math.sin(Math.PI / 6);   // 0.5
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width  = Math.round(W * DPR);
+    canvas.height = Math.round(H * DPR);
+    canvas.style.width  = W + 'px';
+    canvas.style.height = H + 'px';
+    scale   = Math.min(W / 30, H / 23);
+    originX = W / 2;
+    originY = H * 0.62;
+  }
+  window.addEventListener('resize', resize, { passive: true });
+  window.addEventListener('orientationchange', () => setTimeout(resize, 120), { passive: true });
+  resize();
+
+  /* =========================================================
+     3D 投影ヘルパー
+  ========================================================= */
+  let camY = 0;
+
+  function toScreen(x, y, z) {
+    const s = scale * zoom;
+    return {
+      x: ((x - z) * ISO_X) * s + originX,
+      y: ((x + z) * ISO_Y - (y - camY)) * s + originY
+    };
+  }
+
+  function normalize(v) {
+    const l = Math.hypot(v.x, v.y, v.z) || 1;
+    return { x: v.x / l, y: v.y / l, z: v.z / l };
+  }
+
+  const VIEW  = normalize({ x: 1, y: 1, z: 1 });
+  const LIGHT = normalize({ x: 0.55, y: 1.0, z: 0.15 });
+
+  const CORNERS = [
+    [-1,-1,-1], [-1,-1, 1], [-1, 1,-1], [-1, 1, 1],
+    [ 1,-1,-1], [ 1,-1, 1], [ 1, 1,-1], [ 1, 1, 1]
+  ];
+
+  const FACES = [
+    { i: [4,5,7,6], n: [ 1, 0, 0] },
+    { i: [0,2,3,1], n: [-1, 0, 0] },
+    { i: [2,3,7,6], n: [ 0, 1, 0] },
+    { i: [0,4,5,1], n: [ 0,-1, 0] },
+    { i: [1,5,7,3], n: [ 0, 0, 1] },
+    { i: [0,4,6,2], n: [ 0, 0,-1] }
+  ];
+
+  function rotVec(v, axis, a) {
+    const c = Math.cos(a), s = Math.sin(a);
+    if (axis === 'z') return { x: v.x * c - v.y * s, y: v.x * s + v.y * c, z: v.z };
+    if (axis === 'x') return { x: v.x, y: v.y * c - v.z * s, z: v.y * s + v.z * c };
+    return v;
+  }
+
+  function drawBox(cx, cy, cz, w, h, d, hue, opt) {
+    opt = opt || {};
+    const rotAxis  = opt.rotAxis || null;
+    const rotAngle = opt.rotAngle || 0;
+    const alpha    = opt.alpha === undefined ? 1 : opt.alpha;
+    const flash    = opt.flash || 0;
+    const sat      = opt.sat === undefined ? 62 : opt.sat;
+    const glow     = opt.glow || 0;
+
+    const hw = w / 2, hh = h / 2, hd = d / 2;
+
+    const sp = new Array(8);
+    for (let i = 0; i < 8; i++) {
+      const s = CORNERS[i];
+      let vx = s[0] * hw, vy = s[1] * hh, vz = s[2] * hd;
+      if (rotAxis) {
+        const r = rotVec({ x: vx, y: vy, z: vz }, rotAxis, rotAngle);
+        vx = r.x; vy = r.y; vz = r.z;
+      }
+      sp[i] = toScreen(cx + vx, cy + vy, cz + vz);
+    }
+
+    const prevAlpha = ctx.globalAlpha;
+    if (alpha !== 1) ctx.globalAlpha = prevAlpha * alpha;
+
+    for (let f = 0; f < 6; f++) {
+      const face = FACES[f];
+      let nx = face.n[0], ny = face.n[1], nz = face.n[2];
+      if (rotAxis) {
+        const r = rotVec({ x: nx, y: ny, z: nz }, rotAxis, rotAngle);
+        nx = r.x; ny = r.y; nz = r.z;
+      }
+
+      if (nx * VIEW.x + ny * VIEW.y + nz * VIEW.z <= 0.0005) continue;
+
+      const dl = Math.max(0, nx * LIGHT.x + ny * LIGHT.y + nz * LIGHT.z);
+      const inten = 0.28 + 0.72 * dl;
+      let L = 22 + 54 * inten + flash * 34 + glow * 22;
+      if (L > 96) L = 96;
+
+      const fill = 'hsl(' + hue + ',' + sat + '%,' + L.toFixed(1) + '%)';
+      ctx.fillStyle = fill;
+
+      const a = sp[face.i[0]], b = sp[face.i[1]], c = sp[face.i[2]], e = sp[face.i[3]];
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.lineTo(c.x, c.y);
+      ctx.lineTo(e.x, e.y);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = fill;
+      ctx.lineWidth = 1;
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+    }
+
+    ctx.globalAlpha = prevAlpha;
+  }
+
+  /* =========================================================
+     サウンド
+  ========================================================= */
+  let actx = null;
+
+  function initAudio() {
+    if (actx) {
+      if (actx.state === 'suspended') actx.resume();
+      return;
+    }
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) actx = new AC();
+    } catch (e) { actx = null; }
+  }
+
+  function tone(freq, dur, type, vol, delay, slideTo) {
+    if (!actx) return;
+    const t0 = actx.currentTime + (delay || 0);
+    const osc = actx.createOscillator();
+    const g   = actx.createGain();
+    osc.type = type || 'sine';
+    osc.frequency.setValueAtTime(freq, t0);
+    if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(vol, t0 + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(g);
+    g.connect(actx.destination);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.03);
+  }
+
+  function noiseBurst(dur, vol, delay) {
+    if (!actx) return;
+    const t0 = actx.currentTime + (delay || 0);
+    const len = Math.floor(actx.sampleRate * dur);
+    const buf = actx.createBuffer(1, len, actx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+    }
+    const src = actx.createBufferSource();
+    src.buffer = buf;
+    const filt = actx.createBiquadFilter();
+    filt.type = 'lowpass';
+    filt.frequency.value = 900;
+    const g = actx.createGain();
+    g.gain.value = vol;
+    src.connect(filt); filt.connect(g); g.connect(actx.destination);
+    src.start(t0);
+  }
+
+  function sndPlace() {
+    tone(150, 0.16, 'sine', 0.20, 0, 65);
+    noiseBurst(0.09, 0.10, 0);
+  }
+
+  function sndPerfect() {
+    tone(880, 0.14, 'triangle', 0.16, 0);
+    tone(1320, 0.22, 'triangle', 0.11, 0.055);
+    tone(1760, 0.30, 'sine', 0.07, 0.11);
+  }
+
+  // 8連続達成時のご褒美サウンド
+  function sndGrow() {
+    tone(660, 0.12, 'triangle', 0.16, 0);
+    tone(880, 0.14, 'triangle', 0.16, 0.09);
+    tone(1100, 0.20, 'triangle', 0.15, 0.18);
+    tone(1320, 0.30, 'sine',    0.12, 0.27);
+    noiseBurst(0.25, 0.06, 0.05);
+  }
+
+  function sndFail() {
+    tone(320, 0.55, 'sawtooth', 0.14, 0, 55);
+    tone(160, 0.7, 'sine', 0.13, 0.05, 40);
+    noiseBurst(0.3, 0.09, 0.02);
+  }
+
+  /* =========================================================
+     ゲーム定数・状態
+  ========================================================= */
+  const BLOCK_H        = 2.2;
+  const BASE_SIZE      = 8;
+  const GRAVITY        = 26;
+
+  // ★ 固定された移動幅（ブロックが細くなっても変わらない）
+  //   デフォルトより少し広めに設定
+  const SPAWN_AMP      = BASE_SIZE * 1.25;   // = 10
+
+  // ★ 基本スピード（ストリークや太さで補正される）
+  const BASE_SPEED     = 8.5;
+
+  // ★ これ以下の重なりは即失敗
+  const MIN_SIZE       = 0.38;
+
+  // ★ パーフェクト許容幅は「前ブロック幅に対する割合」で決める
+  const PERFECT_RATIO  = 0.075;
+  const PERFECT_MIN    = 0.03;
+  const PERFECT_MAX    = 0.55;
+
+  // ★ 8連続パーフェクトでブロックを大きくする
+  const STREAK_FOR_GROW = 8;
+  const GROW_AMOUNT     = 1.6;
+
+  // ★ スピード計算
+  //   - 太さ係数: 細くなるほど遅くなる（0.5〜1.0）
+  //   - ストリーク係数: 連続成功で最大 +80%
+  function computeSpeed(prevSize, streak) {
+    const t = Math.max(0, Math.min(1, prevSize / (BASE_SIZE * 0.6)));
+    const sizeMul   = 0.5 + 0.5 * t;
+    const streakMul = 1 + Math.min(streak, 12) * 0.066;
+    return BASE_SPEED * sizeMul * streakMul;
+  }
+
+  let blocks, current, debris, particles, texts;
+  let camTargetY, shake, bgHue;
+  let state, score, best = 0;
+  let perfectStreak;
+  let restartAt = 0;
+
+  try {
+    const stored = localStorage.getItem('stack_best_v1');
+    if (stored) best = parseInt(stored, 10) || 0;
+  } catch (e) { /* ignore */ }
+  bestEl.textContent = 'BEST ' + best;
+
+  /* =========================================================
+     初期化 / リセット
+  ========================================================= */
+  function reset() {
+    blocks    = [];
+    debris    = [];
+    particles = [];
+    texts     = [];
+    current   = null;
+
+    score = 0;
+    perfectStreak = 0;
+    shake = 0;
+    bgHue = 205;
+    zoom  = 1;
+
+    blocks.push({
+      x: 0, z: 0,
+      w: BASE_SIZE, d: BASE_SIZE,
+      y: 0, h: BLOCK_H,
+      hue: 205,
+      squash: 0, flash: 0, glow: 0
+    });
+
+    camY = camTargetY = BLOCK_H;
+
+    state = 'ready';
+    updateHUD(false);
+  }
+
+  function updateHUD(pop) {
+    scoreEl.textContent = score;
+    if (pop) {
+      scoreEl.classList.remove('pop');
+      void scoreEl.offsetWidth;
+      scoreEl.classList.add('pop');
+    }
+    bestEl.textContent = 'BEST ' + best;
+  }
+
+  /* =========================================================
+     現在動いているブロックの生成
+     - スポーン位置（振幅）は常に固定 SPAWN_AMP
+     - スピードは「連続成功」と「ブロックの太さ」で決まる
+  ========================================================= */
+  function spawnCurrent() {
+    const prev = blocks[blocks.length - 1];
+    const axis = (blocks.length % 2 === 1) ? 'x' : 'z';
+
+    // 動く軸の前ブロックサイズ（太さ判定に使う）
+    const prevSize = axis === 'x' ? prev.w : prev.d;
+
+    // ★ スピード：連続成功で加速、細いと減速
+    const speed = computeSpeed(prevSize, perfectStreak);
+
+    const hue = (205 + blocks.length * 9) % 360;
+
+    current = {
+      x: prev.x,
+      z: prev.z,
+      baseX: prev.x,
+      baseZ: prev.z,
+      w: prev.w,
+      d: prev.d,
+      y: blocks.length * BLOCK_H,
+      h: BLOCK_H,
+      hue: hue,
+      axis: axis,
+      amp: SPAWN_AMP,        // ★ 常に固定
+      speed: speed,
+      pos: -SPAWN_AMP,
+      dir: 1,
+      squash: 0,
+      flash: 0,
+      glow: 0
+    };
+
+    // ★ スポーン位置は前ブロック中心から常に SPAWN_AMP の位置
+    if (axis === 'x') current.x = prev.x - SPAWN_AMP;
+    else              current.z = prev.z - SPAWN_AMP;
+  }
+
+  /* =========================================================
+     配置処理
+  ========================================================= */
+  function place() {
+    if (state !== 'playing' || !current) return;
+
+    const prev = blocks[blocks.length - 1];
+    const axis = current.axis;
+
+    const curSize  = axis === 'x' ? current.w : current.d;
+    const prevSize = axis === 'x' ? prev.w    : prev.d;
+    const curC     = axis === 'x' ? current.x : current.z;
+    const prevC    = axis === 'x' ? prev.x    : prev.z;
+
+    const curMin = curC - curSize / 2,   curMax = curC + curSize / 2;
+    const prevMin = prevC - prevSize / 2, prevMax = prevC + prevSize / 2;
+
+    const ovMin = Math.max(curMin, prevMin);
+    const ovMax = Math.min(curMax, prevMax);
+    const overlap = ovMax - ovMin;
+
+    /* ---------- 失敗 ---------- */
+    if (overlap < MIN_SIZE) {
+      fail();
+      return;
+    }
+
+    const diff = curC - prevC;
+    const eps = Math.max(
+      PERFECT_MIN,
+      Math.min(prevSize * PERFECT_RATIO, PERFECT_MAX)
+    );
+    const perfect = Math.abs(diff) <= eps;
+
+    let newSize, newC;
+    if (perfect) {
+      newSize = curSize;
+      newC = prevC;
+    } else {
+      newSize = overlap;
+      newC = (ovMin + ovMax) / 2;
+    }
+
+    /* ---------- パーフェクト連続数 & ご褒美 ---------- */
+    let growReward = false;
+    if (perfect) {
+      perfectStreak++;
+      // ★ 8連続ごとに GROW（連続数はリセットしない）
+      if (perfectStreak > 0 && perfectStreak % STREAK_FOR_GROW === 0) {
+        growReward = true;
+      }
+    } else {
+      perfectStreak = 0;
+    }
+
+    /* ---------- ブロックを設置 ---------- */
+    const nb = {
+      x: axis === 'x' ? newC : current.x,
+      z: axis === 'z' ? newC : current.z,
+      w: axis === 'x' ? newSize : current.w,
+      d: axis === 'z' ? newSize : current.d,
+      y: current.y,
+      h: BLOCK_H,
+      hue: current.hue,
+      squash: perfect ? 0.55 : 1.0,
+      flash: perfect ? 1.0 : 0.45,
+      glow: growReward ? 1.6 : 0
+    };
+
+    // ★ GROW：両軸を大きくする（BASE_SIZE が上限）
+    if (growReward) {
+      nb.w = Math.min(nb.w + GROW_AMOUNT, BASE_SIZE);
+      nb.d = Math.min(nb.d + GROW_AMOUNT, BASE_SIZE);
+    }
+
+    blocks.push(nb);
+
+    /* ---------- はみ出し部分を落下させる ---------- */
+    if (!perfect) {
+      const overhang = curSize - overlap;
+      if (overhang > 0.02) {
+        const side = diff > 0 ? 1 : -1;
+        const dC = side > 0 ? (prevMax + curMax) / 2 : (curMin + prevMin) / 2;
+
+        debris.push({
+          x: axis === 'x' ? dC : current.x,
+          y: current.y + BLOCK_H / 2,
+          z: axis === 'z' ? dC : current.z,
+          w: axis === 'x' ? overhang : current.w,
+          h: BLOCK_H,
+          d: axis === 'z' ? overhang : current.d,
+          vx: axis === 'x' ? side * 1.6 : 0,
+          vy: 1.8,
+          vz: axis === 'z' ? side * 1.6 : 0,
+          rotAxis: axis === 'x' ? 'z' : 'x',
+          rotAngle: 0,
+          rotSpeed: (axis === 'x' ? -1 : 1) * side * (2.2 + Math.random() * 2.2),
+          hue: current.hue,
+          life: 6
+        });
+
+        for (let i = 0; i < 7; i++) {
+          const px = axis === 'x' ? (side > 0 ? prevMax : prevMin) : current.x + (Math.random() - 0.5) * current.w;
+          const pz = axis === 'z' ? (side > 0 ? prevMax : prevMin) : current.z + (Math.random() - 0.5) * current.d;
+          particles.push({
+            x: px + (Math.random() - 0.5) * 0.4,
+            y: current.y + Math.random() * BLOCK_H,
+            z: pz + (Math.random() - 0.5) * 0.4,
+            vx: axis === 'x' ? side * (0.8 + Math.random() * 1.6) : (Math.random() - 0.5) * 1.4,
+            vy: 1.2 + Math.random() * 2.2,
+            vz: axis === 'z' ? side * (0.8 + Math.random() * 1.6) : (Math.random() - 0.5) * 1.4,
+            life: 0.5 + Math.random() * 0.45,
+            maxLife: 1,
+            size: 0.06 + Math.random() * 0.13,
+            hue: current.hue,
+            sat: 30,
+            light: 82
+          });
+        }
+      }
+    }
+
+    /* ---------- スコア・エフェクト ---------- */
+    if (perfect) {
+      score += 1;
+      sndPerfect();
+      shake = Math.max(shake, 0.22);
+
+      // リング状のパーティクル
+      const n = 22;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        const r = Math.max(nb.w, nb.d) * 0.5;
+        particles.push({
+          x: nb.x + Math.cos(a) * r,
+          y: nb.y + BLOCK_H + 0.1,
+          z: nb.z + Math.sin(a) * r,
+          vx: Math.cos(a) * (3.2 + Math.random() * 2),
+          vy: 2.2 + Math.random() * 2.5,
+          vz: Math.sin(a) * (3.2 + Math.random() * 2),
+          life: 0.55 + Math.random() * 0.35,
+          maxLife: 1,
+          size: 0.09 + Math.random() * 0.14,
+          hue: nb.hue,
+          sat: 90,
+          light: 78
+        });
+      }
+
+      if (growReward) {
+        // ★ GROW 演出
+        sndGrow();
+        shake = Math.max(shake, 0.7);
+
+        texts.push({
+          text: 'GROW!',
+          x: nb.x, y: nb.y + BLOCK_H + 2.0, z: nb.z,
+          vy: 4.6,
+          life: 1.25, maxLife: 1.25,
+          size: Math.max(24, Math.min(W, H) * 0.055),
+          color: '#9bffb0'
+        });
+
+        for (let i = 0; i < 28; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const r = Math.max(nb.w, nb.d) * (0.5 + Math.random() * 0.8);
+          particles.push({
+            x: nb.x + Math.cos(a) * r,
+            y: nb.y + BLOCK_H * (0.2 + Math.random() * 1.0),
+            z: nb.z + Math.sin(a) * r,
+            vx: Math.cos(a) * (1.5 + Math.random() * 3.5),
+            vy: 2.0 + Math.random() * 3.5,
+            vz: Math.sin(a) * (1.5 + Math.random() * 3.5),
+            life: 0.7 + Math.random() * 0.5,
+            maxLife: 1,
+            size: 0.10 + Math.random() * 0.16,
+            hue: (nb.hue + 60) % 360,
+            sat: 95,
+            light: 82
+          });
+        }
+      } else if (perfectStreak >= 3) {
+        // 通常パーフェクト時：連続数を表示
+        texts.push({
+          text: perfectStreak + ' STREAK',
+          x: nb.x, y: nb.y + BLOCK_H + 1.6, z: nb.z,
+          vy: 4.0,
+          life: 0.85, maxLife: 0.85,
+          size: Math.max(15, Math.min(W, H) * 0.033),
+          color: '#ffe9a8'
+        });
+      }
+    } else {
+      score += 1;
+      sndPlace();
+      shake = Math.max(shake, 0.4);
+    }
+
+    updateHUD(true);
+
+    /* ---------- カメラ & 次のブロック ---------- */
+    camTargetY = blocks.length * BLOCK_H;
+    current = null;
+    spawnCurrent();
+  }
+
+  /* =========================================================
+     失敗処理
+  ========================================================= */
+  function fail() {
+    if (state !== 'playing') return;
+    state = 'falling';
+    shake = 1.0;
+    sndFail();
+
+    const axis = current.axis;
+    const prev = blocks[blocks.length - 1];
+    const curC = axis === 'x' ? current.x : current.z;
+    const prevC = axis === 'x' ? prev.x : prev.z;
+    const side = curC > prevC ? 1 : -1;
+
+    debris.push({
+      x: current.x,
+      y: current.y + BLOCK_H / 2,
+      z: current.z,
+      w: current.w,
+      h: BLOCK_H,
+      d: current.d,
+      vx: axis === 'x' ? side * 2.6 : 0,
+      vy: 2.0,
+      vz: axis === 'z' ? side * 2.6 : 0,
+      rotAxis: axis === 'x' ? 'z' : 'x',
+      rotAngle: 0,
+      rotSpeed: (axis === 'x' ? -1 : 1) * side * 3.4,
+      hue: current.hue,
+      life: 8
+    });
+
+    for (let i = 0; i < 16; i++) {
+      particles.push({
+        x: current.x + (Math.random() - 0.5) * current.w,
+        y: current.y + Math.random() * BLOCK_H,
+        z: current.z + (Math.random() - 0.5) * current.d,
+        vx: (Math.random() - 0.5) * 6,
+        vy: 1 + Math.random() * 3,
+        vz: (Math.random() - 0.5) * 6,
+        life: 0.6 + Math.random() * 0.5,
+        maxLife: 1,
+        size: 0.08 + Math.random() * 0.16,
+        hue: current.hue,
+        sat: 25,
+        light: 78
+      });
+    }
+
+    current = null;
+    setTimeout(gameOver, 780);
+  }
+
+  function gameOver() {
+    if (state === 'over') return;
+    state = 'over';
+
+    const isRecord = score > best;
+    if (isRecord) {
+      best = score;
+      try { localStorage.setItem('stack_best_v1', String(best)); } catch (e) {}
+    }
+
+    finalEl.textContent = score;
+    bestLineEl.textContent = 'BEST ' + best;
+    newRecEl.style.display = isRecord ? 'block' : 'none';
+    overScr.classList.remove('hidden');
+    updateHUD(false);
+
+    restartAt = performance.now() + 650;
+  }
+
+  /* =========================================================
+     スタート
+  ========================================================= */
+  function start() {
+    startScr.classList.add('hidden');
+    overScr.classList.add('hidden');
+    reset();
+    state = 'playing';
+    spawnCurrent();
+  }
+
+  /* =========================================================
+     入力（連打抑制なし）
+  ========================================================= */
+  function onPointerDown(e) {
+    if (e.cancelable) e.preventDefault();
+    initAudio();
+
+    if (state === 'ready') {
+      start();
+    } else if (state === 'playing') {
+      place();
+    } else if (state === 'over') {
+      if (performance.now() >= restartAt) {
+        start();
+      }
+    }
+  }
+
+  window.addEventListener('pointerdown', onPointerDown, { passive: false });
+  window.addEventListener('touchstart', function (e) {
+    if (e.cancelable) e.preventDefault();
+  }, { passive: false });
+  window.addEventListener('contextmenu', e => e.preventDefault());
+
+  /* =========================================================
+     背景の星
+  ========================================================= */
+  const stars = [];
+  for (let i = 0; i < 70; i++) {
+    stars.push({
+      x: Math.random(),
+      y: Math.random(),
+      r: 0.4 + Math.random() * 1.7,
+      sp: 0.004 + Math.random() * 0.022,
+      a: 0.10 + Math.random() * 0.42,
+      tw: Math.random() * Math.PI * 2
+    });
+  }
+
+  /* =========================================================
+     更新
+  ========================================================= */
+  let time = 0;
+
+  function update(dt) {
+    time += dt;
+
+    if (state === 'playing' && current) {
+      current.pos += current.dir * current.speed * dt;
+      if (current.pos > current.amp) {
+        current.pos = current.amp;
+        current.dir = -1;
+      } else if (current.pos < -current.amp) {
+        current.pos = -current.amp;
+        current.dir = 1;
+      }
+      if (current.axis === 'x') current.x = current.baseX + current.pos;
+      else                      current.z = current.baseZ + current.pos;
+    }
+
+    const k = 1 - Math.exp(-7.5 * dt);
+    camY += (camTargetY - camY) * k;
+
+    const zt = Math.max(0.70, 1 - blocks.length * 0.006);
+    zoom += (zt - zoom) * (1 - Math.exp(-3 * dt));
+
+    let targetHue;
+    if (current) targetHue = current.hue;
+    else if (blocks && blocks.length) targetHue = blocks[blocks.length - 1].hue;
+    else targetHue = 205;
+
+    let dh = ((targetHue - bgHue + 540) % 360) - 180;
+    bgHue = (bgHue + dh * (1 - Math.exp(-1.8 * dt)) + 360) % 360;
+
+    shake *= Math.exp(-9 * dt);
+    if (shake < 0.001) shake = 0;
+
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i];
+      if (b.squash > 0) b.squash = Math.max(0, b.squash - dt * 6);
+      if (b.flash > 0)  b.flash  = Math.max(0, b.flash  - dt * 3.4);
+      if (b.glow > 0)   b.glow   = Math.max(0, b.glow   - dt * 1.6);
+    }
+
+    for (let i = debris.length - 1; i >= 0; i--) {
+      const d = debris[i];
+      d.vy -= GRAVITY * dt;
+      d.x += d.vx * dt;
+      d.y += d.vy * dt;
+      d.z += d.vz * dt;
+      d.rotAngle += d.rotSpeed * dt;
+      d.life -= dt;
+
+      if (d.y < camY - 40 || d.life <= 0) {
+        debris.splice(i, 1);
+      }
+    }
+
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.vy -= 16 * dt;
+      p.vx *= (1 - 1.4 * dt);
+      p.vz *= (1 - 1.4 * dt);
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.z += p.vz * dt;
+      p.life -= dt;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+
+    for (let i = texts.length - 1; i >= 0; i--) {
+      const t = texts[i];
+      t.y += t.vy * dt;
+      t.vy *= (1 - 1.8 * dt);
+      t.life -= dt;
+      if (t.life <= 0) texts.splice(i, 1);
+    }
+
+    for (let i = 0; i < stars.length; i++) {
+      const s = stars[i];
+      s.y += s.sp * dt * 0.6;
+      if (s.y > 1.05) { s.y = -0.05; s.x = Math.random(); }
+    }
+  }
+
+  /* =========================================================
+     描画
+  ========================================================= */
+  function drawBackground() {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0,    'hsl(' + bgHue + ',46%,7%)');
+    g.addColorStop(0.5,  'hsl(' + (bgHue + 18) + ',42%,13%)');
+    g.addColorStop(1,    'hsl(' + (bgHue + 48) + ',48%,22%)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    for (let i = 0; i < stars.length; i++) {
+      const s = stars[i];
+      const tw = 0.65 + 0.35 * Math.sin(time * 1.6 + s.tw);
+      ctx.globalAlpha = s.a * tw;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(s.x * W, s.y * H, s.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    const cx = originX;
+    const cy = originY - H * 0.14;
+    const rad = Math.max(W, H) * 0.72;
+    const rg = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
+    rg.addColorStop(0,   'hsla(' + (bgHue + 30) + ',85%,58%,0.16)');
+    rg.addColorStop(0.45,'hsla(' + (bgHue + 50) + ',80%,50%,0.06)');
+    rg.addColorStop(1,   'hsla(' + (bgHue + 60) + ',80%,50%,0)');
+    ctx.fillStyle = rg;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  function renderBlock(b) {
+    const sq = b.squash || 0;
+    const hh = b.h * (1 - 0.22 * sq);
+    const cy = b.y + hh / 2;
+    drawBox(b.x, cy, b.z, b.w, hh, b.d, b.hue, {
+      flash: b.flash || 0,
+      glow: b.glow || 0,
+      sat: 62
+    });
+  }
+
+  function drawTower() {
+    const margin = H * 0.5;
+
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i];
+      const approxY = ((b.x + b.z) * ISO_Y - (b.y - camY)) * (scale * zoom) + originY;
+      if (approxY < -margin || approxY > H + margin) continue;
+      renderBlock(b);
+    }
+
+    if (current) renderBlock(current);
+  }
+
+  function drawDebris() {
+    for (let i = 0; i < debris.length; i++) {
+      const d = debris[i];
+      const fade = Math.min(1, d.life * 1.6);
+      drawBox(d.x, d.y, d.z, d.w, d.h, d.d, d.hue, {
+        rotAxis: d.rotAxis,
+        rotAngle: d.rotAngle,
+        alpha: fade,
+        sat: 62
+      });
+    }
+  }
+
+  function drawParticles() {
+    for (let i = 0; i < particles.length; i++) {
+      const p = particles[i];
+      const a = Math.max(0, Math.min(1, p.life / 0.6));
+      const sp = toScreen(p.x, p.y, p.z);
+      if (sp.y < -60 || sp.y > H + 60) continue;
+
+      const r = Math.max(1, p.size * scale * zoom);
+      ctx.globalAlpha = a;
+      ctx.fillStyle = 'hsl(' + p.hue + ',' + (p.sat || 80) + '%,' + (p.light || 80) + '%)';
+      ctx.beginPath();
+      ctx.arc(sp.x, sp.y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawTexts() {
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    for (let i = 0; i < texts.length; i++) {
+      const t = texts[i];
+      const sp = toScreen(t.x, t.y, t.z);
+      const lifeRatio = t.life / t.maxLife;
+      const a = Math.min(1, lifeRatio * 2.4);
+      const sc = 1 + (1 - lifeRatio) * 0.18;
+
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.translate(sp.x, sp.y);
+      ctx.scale(sc, sc);
+      ctx.font = '900 ' + t.size + 'px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.lineWidth = Math.max(3, t.size * 0.16);
+      ctx.strokeStyle = 'rgba(0,0,0,0.42)';
+      ctx.lineJoin = 'round';
+      ctx.strokeText(t.text, 0, 0);
+      ctx.fillStyle = t.color;
+      ctx.fillText(t.text, 0, 0);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawVignette() {
+    const g = ctx.createRadialGradient(
+      W / 2, H * 0.48, Math.min(W, H) * 0.28,
+      W / 2, H * 0.48, Math.max(W, H) * 0.78
+    );
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(1, 'rgba(0,0,0,0.46)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    const tg = ctx.createLinearGradient(0, 0, 0, H * 0.24);
+    tg.addColorStop(0, 'rgba(0,0,0,0.38)');
+    tg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = tg;
+    ctx.fillRect(0, 0, W, H * 0.24);
+  }
+
+  function render() {
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+    drawBackground();
+
+    ctx.save();
+    if (shake > 0.001) {
+      const s = shake * 16;
+      ctx.translate(
+        (Math.random() - 0.5) * s,
+        (Math.random() - 0.5) * s
+      );
+    }
+
+    drawTower();
+    drawDebris();
+    drawParticles();
+    drawTexts();
+
+    ctx.restore();
+
+    drawVignette();
+  }
+
+  /* =========================================================
+     メインループ
+  ========================================================= */
+  let lastTime = 0;
+
+  function loop(now) {
+    if (!lastTime) lastTime = now;
+    let dt = (now - lastTime) / 1000;
+    lastTime = now;
+    if (dt > 0.05) dt = 0.05;
+    if (dt < 0) dt = 0;
+
+    update(dt);
+    render();
+
+    requestAnimationFrame(loop);
+  }
+
+  /* =========================================================
+     起動
+  ========================================================= */
+  reset();
+  requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>
